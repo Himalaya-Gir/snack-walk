@@ -2596,6 +2596,7 @@ function showSummary() {
 }
 function exportObject() {
   return {
+    trial_type: 'session',   // DataPipe's default validation asks for a top-level trial_type field (checked 9 October 2026)
     app: 'Play as Sam, pilot', session: G.id, player: G.s.player || '', started: G.started, ended: G.ended || null, stopped_early: !!G.stopped,
     settings: G.s, types_approximate: TYPES, families: FAMILIES, placed_around_you: !!G.placed, you: G.you || null,
     foods: Object.fromEntries(FOOD_IDS.map(id => [id, { name: FOODS[id].name, family: FOODS[id].family, love_like_neutral_dislike_hate: FOODS[id].yg, stand_in_data: !!FOODS[id].proxy, shape: G.shapeOf[id] }])),
@@ -2621,7 +2622,8 @@ const fileBase = o => 'snack_walk_pilot_' + slug(o.player) + '_' + o.session;
 function withNotes(rounds, feelings, harder) {
   const byBlock = {};
   (feelings || []).forEach(f => { byBlock[f.block + '/' + (f.attempt || 1)] = f; });
-  return rounds.map(r => { const f = byBlock[r.block + '/' + (r.attempt || 1)]; return { ...r, felt: f ? f.felt : '', felt_label: f ? f.felt_label || '' : '', note: f ? f.note : '', harder_to_play: harder ? harder.person : '' }; });
+  const kind = { practice: 'practice', sam: 'as character', self: 'as yourself' };   // trial_type: also what DataPipe's validation asks for
+  return rounds.map(r => { const f = byBlock[r.block + '/' + (r.attempt || 1)]; return { trial_type: kind[r.block_type] || r.block_type, ...r, felt: f ? f.felt : '', felt_label: f ? f.felt_label || '' : '', note: f ? f.note : '', harder_to_play: harder ? harder.person : '' }; });
 }
 function toCSV(rows) {
   const cols = [];

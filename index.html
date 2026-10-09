@@ -300,6 +300,8 @@ main{padding-top:14px;padding-bottom:14px}
 .story .who h1{margin:0}
 .boardwrap .playbar{margin:0;max-width:none;width:100%}
 .presskey{color:var(--muted);margin-top:22px}
+.qhint{color:var(--bad);margin:8px 0 0}
+.panel .qq{margin:18px 0 6px}
 .watchctl{justify-content:center}
 .watchctl .presskey{margin:0}
 .cornerback,.cornerbtns{position:fixed;left:16px;bottom:16px}
@@ -1329,7 +1331,7 @@ function pilotBlocks(s) {
 // practice where you are Pat and see Pat's tastes, with the right answer explained, then a quiz: one wrong answer and
 // you read the story again. Players are the characters (their tastes, not their own); no numbers on the map.
 const PILOT_PAT = { ...PRACTICE_MIND, name: 'Pat', v: { egg: 8, pretzel: 4, lemon: 0 } };
-const PILOT_WELCOME = 'Welcome! The next pages explain the game.';
+const PILOT_WELCOME = 'Welcome! The game takes about 15 minutes. The next pages explain it.';
 const PILOT_KEYS_HTML = '';
 const pIcon = id => (id === 'pawn' ? `<img src="${IMG_PERSON}" alt="">` : id === 'door' ? DOOR_SVG : `<img src="${(PRACTICE_ITEMS[id] || FOODS[id]).img}" alt="">`);
 // A small board for the story: things are [id, x, y] (an id that is a digit is a step number). The pawn is drawn at
@@ -1378,12 +1380,14 @@ function pilotPracticeBlock(s) {
 }
 function pilotSteps(blocks, s) {
   const st = PILOT_STORY.map((_, k) => ({ type: 'story', k }));
+  let quizzed = false;
   blocks.forEach(b => {
     st.push({ type: 'intro', b });
+    if (b.type === 'sam' && !quizzed) { st.push({ type: 'quiz', b }); quizzed = true; }   // Julian, 9 October 2026
     if (b.type === 'sam') { st.push({ type: 'watch', b }); st.push({ type: 'ready', b }); }
     b.trials.forEach((_, i) => st.push({ type: 'trial', b, i, phase: b.type === 'sam' ? 'test' : b.type }));
     if (b.type === 'practice') st.push({ type: 'plan' });
-    if (b.type === 'sam' && s.feel) st.push({ type: 'feel', b });
+    if ((b.type === 'sam' || b.type === 'self') && s.feel) st.push({ type: 'feel', b });
   });
   if (s.feel && blocks.filter(b => b.type === 'sam').length === 2) st.push({ type: 'harder' });
   st.push({ type: 'summary' });
@@ -1430,7 +1434,7 @@ const pilotBack = () => { const el = $('#back'); if (el) el.addEventListener('cl
 function showPlan() {
   clearTimeout(STORY_TIMER);
   screen = 'story'; onKey = null; onKeyUp = null;
-  app.innerHTML = pilotPage('The game', ['You will meet two characters, one at a time. Each one has their own tastes.', 'First, watch the character choose. Then pretend to be them: act as if you had their tastes, not yours.', 'At the end, you will play as yourself.'], '');
+  app.innerHTML = pilotPage('The game', ['The game has three parts.'], '');
   pilotBack();
   armContinue(next, 400);
 }
@@ -1438,8 +1442,9 @@ function pilotIntro(b) {
   const m = b.mind, nm = esc(m.name);
   let html;
   if (b.type === 'practice') html = pilotPage("Let's practice", ['Use the arrow keys to walk. Follow the instruction above the town.'], '');
-  else if (b.type === 'self') html = pilotPage("Now it's you", ['You are yourself again.', 'Walk to the snack you would pick, or to the door to go home.'], ME_MIND.color);
-  else html = pilotPage(`Meet ${nm}`, [`Watch ${nm} choose.`], m.color);
+  else if (b.type === 'self') html = pilotPage('Part 3 of 3: you', ['Now you are yourself again: do exactly what you would do on a typical day.', 'Remember, each square is one block, and you are choosing what to eat.', 'Walk to the snack you would pick, or go home through the door.'], ME_MIND.color);
+  else if (G.blocks.filter(x => x.type === 'sam').indexOf(b) === 0) html = pilotPage(`Part 1 of 3: ${nm}`, [`You will watch ${nm} choose snacks. Try your best to figure out what ${nm} likes.`, `Then you will pretend to be ${nm}.`], m.color);
+  else html = pilotPage(`Part 2 of 3: ${nm}`, ['Same thing, with a different character who has different tastes.', `Watch ${nm} choose snacks, and try your best to figure out what ${nm} likes. Then you will pretend to be ${nm}.`], m.color);
   app.innerHTML = html;
   const t0 = performance.now();
   let done = false;
@@ -1450,11 +1455,37 @@ function pilotIntro(b) {
 function showReady(b) {
   screen = 'intro'; onKey = null; onKeyUp = null;
   const m = b.mind, nm = esc(m.name);
-  app.innerHTML = pilotPage(`Now pretend you are ${nm}`, [`Act as if you had ${nm}'s tastes, not yours.`, 'Then walk to the snack you would pick, or to the door to go home.'], m.color);
+  app.innerHTML = pilotPage(`Now pretend you are ${nm}`, [`Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.`, `Move the character exactly as ${nm} would.`], m.color);
   let done = false;
   const go = () => { if (done) return; done = true; next(); };
   pilotBack();
   armContinue(go, 400);
+}
+// The quiz (Julian, 9 October 2026): right after the first part is introduced, two questions on the two things that
+// must be understood. The character chooses by its own tastes, which the player has to figure out; then the player acts
+// exactly as the character. Not a test: a wrong answer shows a reminder, and the participant answers again.
+function showQuiz(b) {
+  screen = 'quiz'; onKey = null; onKeyUp = null;
+  const nm = esc(b.mind.name);
+  const qs = [
+    { q: `While you watch ${nm}, ${nm} is:`, a: ['always walking to the closest snack', `choosing by ${nm}'s own tastes, which you have to figure out`, 'always choosing the fanciest snack'], right: 1,
+      hint: `${nm} chooses by ${nm}'s own tastes. Your job is to figure them out.` },
+    { q: `Then, when you play as ${nm}, you should:`, a: ['pick the snacks you like yourself', `mix your tastes with ${nm}'s tastes`, `move the character exactly as ${nm} would, as if you were ${nm}`], right: 2,
+      hint: `Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.` },
+  ];
+  G.quiz = G.quiz || [];
+  app.innerHTML = `<section class="quiz"><h2>Two questions</h2>
+    ${qs.map((x, i) => `<div class="qblock"><p class="qq">${x.q}</p>${x.a.map((o, j) => `<label><input type="radio" name="q${i}" value="${j}"> ${o}</label>`).join('')}<p class="qhint hidden" id="hint${i}">${x.hint}</p></div>`).join('')}
+    <div class="continue"><button class="btn" id="qCheck" type="button" disabled>Continue</button></div></section>`;
+  const answers = () => qs.map((x, i) => { const el = document.querySelector(`input[name="q${i}"]:checked`); return el ? Number(el.value) : null; });
+  app.querySelector('.quiz').addEventListener('change', () => { $('#qCheck').disabled = answers().some(v => v === null); });
+  $('#qCheck').addEventListener('click', () => {
+    const a = answers(), ok = a.map((v, i) => v === qs[i].right);
+    G.quiz.push({ attempt: G.quiz.length + 1, character: b.mind.name, answers: a, correct: ok, passed: ok.every(Boolean), at: new Date().toISOString() });
+    persist();
+    if (ok.every(Boolean)) { next(); return; }
+    ok.forEach((v, i) => $('#hint' + i).classList.toggle('hidden', v));
+  });
 }
 // The results, for the lab only while the pilot stays in the lab: scored rounds by gap, the feeling, the time, and what
 // the player took on the test rounds (no right answer there).
@@ -1463,7 +1494,7 @@ function showReady(b) {
 function showOnlineStart() {
   screen = 'start'; onKey = null; onKeyUp = null; CUR = null; setTop(false);
   const code = (new URLSearchParams(location.search).get('code') || '').trim().slice(0, 40);
-  app.innerHTML = `<section class="story"><h1>The snack walk</h1><p class="lead">Welcome! The next pages explain the game.</p><p class="lead">Please use a computer with a keyboard.</p>
+  app.innerHTML = `<section class="story"><h1>The snack walk</h1><p class="lead">Welcome! The game takes about 15 minutes. The next pages explain it.</p><p class="lead">Please use a computer with a keyboard.</p>
     ${code ? '<p class="presskey">Press space to start</p>' : '<div class="name-field"><label for="player">Your name or code</label><input id="player" data-enter="#go" autocomplete="off"></div><div class="actions"><button class="btn" id="go" type="button">Start</button></div>'}</section>`;
   const go = () => { S.player = code || ($('#player').value || '').trim(); startGame(); };
   if (code) armContinue(go, 300); else $('#go').addEventListener('click', go);
@@ -1501,7 +1532,7 @@ function showPilotSummary() {
     const bi = G.blocks.indexOf(b) + 1, rs = recs.filter(r => r.block === bi), scored = rs.filter(r => r.pilot_scored);
     const band = k => { const x = scored.filter(r => r.pilot_gap_band === k); return x.length ? `${x.filter(r => r.correct === true).length} of ${x.length}` : ''; };
     const f = feels.find(x => x.block === bi);
-    return { name: b.mind.name, color: b.mind.color, kind: PILOT_LABEL[b.mind.id], felt: f ? `${f.felt}, ${String(f.felt_label || '').toLowerCase()}` : '',
+    return { name: b.mind.name, color: b.mind.color, kind: PILOT_LABEL[b.mind.id], felt: f ? `${f.felt}${f.felt_label ? ', ' + f.felt_label.toLowerCase() : ''}` : '', describe: f ? f.describe || '' : '',
       place: G.blocks.filter(x => x.type === 'sam').indexOf(b) ? 'played second' : 'played first',
       scored: `${scored.filter(r => r.correct === true).length} of ${scored.length}`, small: band('small'), medium: band('medium'), large: band('large'),
       rt: med(scored.map(r => r.rt_first_ms)), tests: Object.fromEntries(rs.filter(r => r.pilot_card_kind === 'test').map(r => [r.pilot_card, r.choice])) };
@@ -1516,6 +1547,7 @@ function showPilotSummary() {
     <p class="muted">For the lab only: this page shows which character was which.${G.s.pilotCell ? ` Order and names: case ${G.s.pilotCell} of 4 (from the ${esc(G.s.pilotCellFrom)}).` : ''}</p></section>
     <div class="sum-grid">${per.map(x => `<div class="sum-card" style="--sam:${x.color}"><div class="who">${avatarHTML(x.color)}<div><div class="nm">${esc(x.name)}</div><div class="sb">${esc(x.kind)} tastes · ${x.place}</div></div></div>
       <div class="metric"><span>How hard (1 very easy, 7 very hard)</span><b>${esc(x.felt)}</b></div>
+      ${x.describe ? `<p class="small"><b>Described as:</b> ${esc(x.describe)}</p>` : ''}
       <div class="metric"><span>Scored rounds</span><b>${x.scored}</b></div>
       <div class="metric"><span>Small gap</span><b>${x.small}</b></div><div class="metric"><span>Medium gap</span><b>${x.medium}</b></div><div class="metric"><span>Large gap</span><b>${x.large}</b></div>
       <div class="metric"><span>Time before the first step (median)</span><b>${x.rt == null ? '' : num(x.rt / 1000, 1) + ' s'}</b></div></div>`).join('')}</div>
@@ -1523,7 +1555,8 @@ function showPilotSummary() {
       <table class="ptab"><tr><th>Round</th>${per.map(x => `<th>As ${esc(x.name)}</th>`).join('')}<th>For yourself</th></tr>
       ${tests.map(c => `<tr><td>${esc(c.label)}</td>${per.map(x => `<td>${esc(nameOf(x.tests[c.id]))}</td>`).join('')}<td>${esc(nameOf(c.you))}</td></tr>`).join('')}</table>
       ${G.harder ? `<p><b>Harder to play as:</b> ${esc(G.harder.name)} (${esc(G.harder.person)}).</p>` : ''}
-      <p class="muted">This game is kept in this browser.${G.s.autoFile ? ' A copy also goes to your Downloads as a file.' : ''}</p>
+      ${(() => { const sf = feels.find(x => G.blocks[x.block - 1] && G.blocks[x.block - 1].type === 'self'); return sf ? `<p><b>Playing as yourself, how hard:</b> ${sf.felt}${sf.felt_label ? ', ' + esc(sf.felt_label.toLowerCase()) : ''}.</p>` : ''; })()}
+      <p class="muted">Quiz attempts: ${(G.quiz || []).length}. This game is kept in this browser.${G.s.autoFile ? ' A copy also goes to your Downloads as a file.' : ''}</p>
       <div class="actions"><button class="btn" id="dlJson" type="button">Download everything (JSON)</button><button class="btn ghost" id="dlCsv" type="button">Download the rounds (CSV)</button><button class="btn ghost" id="again" type="button">New game</button></div></section>`;
   const base = fileBase({ player: G.s.player, session: G.id });
   if (G.s.autoFile && !G.fileSaved) { G.fileSaved = true; download(base + '.json', JSON.stringify(exportObject(), null, 1), 'application/json'); }
@@ -1532,7 +1565,7 @@ function showPilotSummary() {
   $('#again').addEventListener('click', showStart);
 }
 window.PILOT_DEBUG = { rounds: () => (G ? G.trials : []), keys: () => (G ? G.keys : []), blocks: (seed, extra) => pilotBlocks(Object.assign(clone(S), { seed: seed || 7 }, extra || {})), dists, evaluate, PILOTE, pilotCell,
-  goto: type => { const i = G ? G.steps.findIndex(st => st.type === type) : -1; if (i >= 0) { G.k = i - 1; next(); } return i; } };
+  goto: (type, n = 0) => { const i = G ? (G.steps.map((st, j) => (st.type === type ? j : -1)).filter(j => j >= 0)[n] ?? -1) : -1; if (i >= 0) { G.k = i - 1; next(); } return i; } };
 function buildBlocks(s) {
   if (s.build === 'pilote') return pilotBlocks(s);
   const pool = poolOf(s);
@@ -1866,6 +1899,7 @@ function next() {
   setTop(true);
   if (st.type === 'story') return showStory(st.k);
   if (st.type === 'plan') return showPlan();
+  if (st.type === 'quiz') return showQuiz(st.b);
   if (st.type === 'ready') return showReady(st.b);
   if (st.type === 'intro') return showIntro(st.b);
   if (st.type === 'watch') return showWatch(st.b);
@@ -2374,29 +2408,34 @@ function showRecall(b, when) {
     next();
   });
 }
-// How hard it was to play each character: a 7-point scale, every point labelled (Himalaya, 9 October 2026). The keys
-// 1 to 7 answer too.
-const PILOT_SCALE = ['Very easy', 'Easy', 'Somewhat easy', 'Neither easy nor hard', 'Somewhat hard', 'Hard', 'Very hard'];
+// How hard it was to play each part: a 7-point scale with words only at both ends and in the middle (Julian, 9 October
+// 2026: less text). The keys 1 to 7 answer too. Then what we want to learn: how the participant would describe the
+// character (required), and the strategy (optional). After the last part, the same scale for playing as oneself.
+const PILOT_SCALE = ['Very easy', '', '', 'Neither easy nor hard', '', '', 'Very hard'];
 function showFeel(b) {
   screen = 'feel'; onKeyUp = null;
-  const m = b.mind;
+  const m = b.mind, self = b.type === 'self', nm = esc(m.name);
   let pick = null;
   app.innerHTML = `<section class="panel" style="--sam:${m.color}">
-    <div class="who">${avatarHTML(m.color)}<h2 class="feelq">How easy or hard was it to play as ${esc(m.name)}?</h2></div>
+    <div class="who">${avatarHTML(m.color)}<h2 class="feelq">How easy or hard was it to play as ${self ? 'yourself' : nm}?</h2></div>
     <div class="likert">${PILOT_SCALE.map((o, k) => `<button type="button" data-k="${k + 1}"><b>${k + 1}</b><span>${o}</span></button>`).join('')}</div>
-    <textarea id="feelNote" placeholder="Anything to note? (optional)"></textarea>
+    ${self ? '' : `<p class="qq">How would you describe ${nm}?</p><textarea id="feelDescribe"></textarea>`}
+    <p class="qq">What strategy did you use? <span class="muted">(optional)</span></p><textarea id="feelStrategy"></textarea>
     <div class="continue"><button class="btn" id="feelDone" type="button" disabled>Next</button></div>
   </section>`;
+  const ready = () => { $('#feelDone').disabled = !(pick && (self || $('#feelDescribe').value.trim())); };
   const choose = k => {
     pick = k;
     $$('.likert button').forEach(x => x.classList.toggle('on', Number(x.dataset.k) === k));
-    $('#feelDone').disabled = false;
+    ready();
   };
   $('.likert').addEventListener('click', e => { const btn = e.target.closest('button'); if (btn) choose(Number(btn.dataset.k)); });
-  onKey = e => { if (/^[1-7]$/.test(e.key)) choose(Number(e.key)); else if (e.key === 'Enter' && pick) $('#feelDone').click(); };
+  if (!self) $('#feelDescribe').addEventListener('input', ready);
+  onKey = e => { if (/^[1-7]$/.test(e.key)) choose(Number(e.key)); else if (e.key === 'Enter' && !$('#feelDone').disabled) $('#feelDone').click(); };
   $('#feelDone').addEventListener('click', () => {
     onKey = null;
-    G.feels.push({ block: G.blocks.indexOf(b) + 1, attempt: b.attempt || 1, person: m.name, felt: pick, felt_label: PILOT_SCALE[pick - 1], scale: '1 very easy to 7 very hard', note: $('#feelNote').value.trim() });
+    G.feels.push({ block: G.blocks.indexOf(b) + 1, attempt: b.attempt || 1, person: self ? 'you' : m.name, felt: pick, felt_label: PILOT_SCALE[pick - 1] || '', scale: '1 very easy, 4 neither easy nor hard, 7 very hard',
+      describe: self ? '' : $('#feelDescribe').value.trim(), strategy: $('#feelStrategy').value.trim() });
     persist();
     next();
   });
@@ -2623,7 +2662,7 @@ function withNotes(rounds, feelings, harder) {
   const byBlock = {};
   (feelings || []).forEach(f => { byBlock[f.block + '/' + (f.attempt || 1)] = f; });
   const kind = { practice: 'practice', sam: 'as character', self: 'as yourself' };   // trial_type: also what DataPipe's validation asks for
-  return rounds.map(r => { const f = byBlock[r.block + '/' + (r.attempt || 1)]; return { trial_type: kind[r.block_type] || r.block_type, ...r, felt: f ? f.felt : '', felt_label: f ? f.felt_label || '' : '', note: f ? f.note : '', harder_to_play: harder ? harder.person : '' }; });
+  return rounds.map(r => { const f = byBlock[r.block + '/' + (r.attempt || 1)]; return { trial_type: kind[r.block_type] || r.block_type, ...r, felt: f ? f.felt : '', felt_label: f ? f.felt_label || '' : '', describe: f ? f.describe || '' : '', strategy: f ? f.strategy || f.note || '' : '', harder_to_play: harder ? harder.person : '' }; });
 }
 function toCSV(rows) {
   const cols = [];

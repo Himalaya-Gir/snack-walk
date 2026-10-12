@@ -299,7 +299,7 @@ main{padding-top:14px;padding-bottom:14px}
 .story{margin-top:40px}
 .story .who h1{margin:0}
 .boardwrap .playbar{margin:0;max-width:none;width:100%}
-.presskey{color:var(--muted);margin-top:22px}
+.presskey{color:#111;font-size:20px;font-weight:700;margin-top:22px}   /* black, bigger, bold: a lab tester could not see it (12 October 2026) */
 .qhint{color:var(--bad);margin:8px 0 0}
 .panel .qq{margin:18px 0 6px}
 .watchctl{justify-content:center}
@@ -1384,7 +1384,8 @@ function pilotSteps(blocks, s) {
   blocks.forEach(b => {
     st.push({ type: 'intro', b });
     if (b.type === 'sam' && !quizzed) { st.push({ type: 'quiz', b }); quizzed = true; }   // Julian, 9 October 2026
-    if (b.type === 'sam') { st.push({ type: 'watch', b }); st.push({ type: 'ready', b }); }
+    // Each important moment gets its own announcing page (Himalaya, 12 October 2026, after a lab tester).
+    if (b.type === 'sam') { st.push({ type: 'watchintro', b }); st.push({ type: 'watch', b }); st.push({ type: 'ready', b }); }
     b.trials.forEach((_, i) => st.push({ type: 'trial', b, i, phase: b.type === 'sam' ? 'test' : b.type }));
     if (b.type === 'practice') st.push({ type: 'plan' });
     if ((b.type === 'sam' || b.type === 'self') && s.feel) st.push({ type: 'feel', b });
@@ -1401,8 +1402,8 @@ function showStory(k) {
   const pic = (pawn, mode) => (p.w ? storyBoard(p.w, p.h, p.things, pawn, mode) : '');
   const go = () => { clearTimeout(STORY_TIMER); next(); };
   app.innerHTML = `<section class="story"><div class="pic" id="spic">${pic(p.pawn, 'walk')}</div>${p.caption ? `<p class="scap">${esc(p.caption)}</p>` : ''}${p.lines.map(l => `<p class="lead">${l}</p>`).join('')}
-    <p class="presskey">Press space to continue</p></section>${k > 0 ? '<button class="btn ghost cornerback" id="sBack" type="button">Back</button>' : ''}`;
-  if (k > 0) $('#sBack').addEventListener('click', () => { clearTimeout(STORY_TIMER); G.k -= 2; next(); });
+    <p class="presskey">Press space to continue</p></section>`;   // no Back button: not needed (lab tester, 12 October 2026)
+  if (k > 0 && $('#sBack')) $('#sBack').addEventListener('click', () => { clearTimeout(STORY_TIMER); G.k -= 2; next(); });
   armContinue(go, 400);
   // The walk, in a loop: a pause at the start, one block every half second, a moment on the food or the door, then
   // the food taken or the character gone home, and again.
@@ -1425,7 +1426,7 @@ function showStory(k) {
 // to continue", and a small Back button in the corner when the page before was instructions too (Himalaya, 9 October
 // 2026: the keyboard first).
 const pilotPage = (title, lines, color) => {
-  const before = (G.steps[G.k - 1] || {}).type, back = before === 'story' || before === 'plan';
+  const back = false;   // no Back button on instruction pages (lab tester, 12 October 2026)
   return `<section class="story"><div class="who">${color ? avatarHTML(color) : ''}<h1>${title}</h1></div>${lines.map(l => `<p class="lead">${l}</p>`).join('')}
   <p class="presskey">Press space to continue</p></section>${back ? '<button class="btn ghost cornerback" id="back" type="button">Back</button>' : ''}`;
 };
@@ -1443,8 +1444,11 @@ function pilotIntro(b) {
   let html;
   if (b.type === 'practice') html = pilotPage("Let's practice", ['Use the arrow keys to walk. Follow the instruction above the town.'], '');
   else if (b.type === 'self') html = pilotPage('Part 3 of 3: you', ['Now you are yourself again: do exactly what you would do on a typical day.', 'Remember, each square is one block, and you are choosing what to eat.', 'Walk to the snack you would pick, or go home through the door.'], ME_MIND.color);
-  else if (G.blocks.filter(x => x.type === 'sam').indexOf(b) === 0) html = pilotPage(`Part 1 of 3: ${nm}`, [`You will watch ${nm} choose snacks. Try your best to figure out what ${nm} likes.`, `Then you will pretend to be ${nm}.`], m.color);
-  else html = pilotPage(`Part 2 of 3: ${nm}`, ['Same thing, with a different character who has different tastes.', `Watch ${nm} choose snacks, and try your best to figure out what ${nm} likes. Then you will pretend to be ${nm}.`], m.color);
+  // Two steps in each character's part, named a and b (Himalaya, 12 October 2026, after a lab tester).
+  else {
+    const n = partNo(b), steps = [`<b>${n}a.</b> Watch ${nm} choose snacks, and try your best to figure out what ${nm} likes.`, `<b>${n}b.</b> Make the same choices ${nm} would make, as if you were ${nm}.`];
+    html = pilotPage(`Part ${n} of 3: ${nm}`, (n === 1 ? ['This part has two steps.'] : ['Same thing, with a different character who has different tastes.']).concat(steps), m.color);
+  }
   app.innerHTML = html;
   const t0 = performance.now();
   let done = false;
@@ -1452,10 +1456,19 @@ function pilotIntro(b) {
   pilotBack();
   armContinue(go, 400);
 }
+const partNo = b => G.blocks.filter(x => x.type === 'sam').indexOf(b) + 1;
+// Before the examples: a page that says clearly what comes next (Himalaya, 12 October 2026).
+function showWatchIntro(b) {
+  screen = 'intro'; onKey = null; onKeyUp = null;
+  const m = b.mind, nm = esc(m.name), n = partNo(b);
+  app.innerHTML = pilotPage(`Part ${n}a: watch ${nm}`, [`On the next screen, ${nm} will choose snacks, ${b.examples.demos.length} times.`, `Pay close attention to what ${nm} likes.`], m.color);
+  pilotBack();
+  armContinue(next, 400);
+}
 function showReady(b) {
   screen = 'intro'; onKey = null; onKeyUp = null;
   const m = b.mind, nm = esc(m.name);
-  app.innerHTML = pilotPage(`Now pretend you are ${nm}`, [`Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.`, `Move the character exactly as ${nm} would.`], m.color);
+  app.innerHTML = pilotPage(`Part ${partNo(b)}b: now pretend you are ${nm}`, [`Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.`, `Make the same choices ${nm} would make, as if you were ${nm}.`], m.color);
   let done = false;
   const go = () => { if (done) return; done = true; next(); };
   pilotBack();
@@ -1470,11 +1483,11 @@ function showQuiz(b) {
   const qs = [
     { q: `While you watch ${nm}, ${nm} is:`, a: ['always walking to the closest snack', `choosing by ${nm}'s own tastes, which you have to figure out`, 'always choosing the fanciest snack'], right: 1,
       hint: `${nm} chooses by ${nm}'s own tastes. Your job is to figure them out.` },
-    { q: `Then, when you play as ${nm}, you should:`, a: ['pick the snacks you like yourself', `mix your tastes with ${nm}'s tastes`, `move the character exactly as ${nm} would, as if you were ${nm}`], right: 2,
+    { q: `Then, when you play as ${nm}, you should:`, a: ['pick the snacks you like yourself', `mix your tastes with ${nm}'s tastes`, `make the same choices ${nm} would make, as if you were ${nm}`], right: 2,
       hint: `Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.` },
   ];
   G.quiz = G.quiz || [];
-  app.innerHTML = `<section class="quiz"><h2>Two questions</h2>
+  app.innerHTML = `<section class="quiz"><h2>Before starting, we have two questions for you.</h2>
     ${qs.map((x, i) => `<div class="qblock"><p class="qq">${x.q}</p>${x.a.map((o, j) => `<label><input type="radio" name="q${i}" value="${j}"> ${o}</label>`).join('')}<p class="qhint hidden" id="hint${i}">${x.hint}</p></div>`).join('')}
     <div class="continue"><button class="btn" id="qCheck" type="button" disabled>Continue</button></div></section>`;
   const answers = () => qs.map((x, i) => { const el = document.querySelector(`input[name="q${i}"]:checked`); return el ? Number(el.value) : null; });
@@ -1901,6 +1914,7 @@ function next() {
   if (st.type === 'plan') return showPlan();
   if (st.type === 'quiz') return showQuiz(st.b);
   if (st.type === 'ready') return showReady(st.b);
+  if (st.type === 'watchintro') return showWatchIntro(st.b);
   if (st.type === 'intro') return showIntro(st.b);
   if (st.type === 'watch') return showWatch(st.b);
   if (st.type === 'check') return showCheck(st.b);
@@ -2075,17 +2089,17 @@ function showWatch(b) {
     if (!live()) return;
     const last = k === demos.length - 1;
     $('#watchctl').innerHTML = s.build === 'pilote'
-      ? `<p class="presskey">Press space to continue</p><div class="cornerbtns">${k > 0 ? '<button class="btn ghost" id="wBack" type="button">Back</button>' : ''}<button class="btn ghost" id="wAgain" type="button">Watch again</button></div>`
+      ? `<p class="presskey">Press space to continue</p><div class="cornerbtns"><button class="btn ghost" id="wAgain" type="button">Watch again (←)</button></div>`
       : `${k > 0 ? '<button class="btn ghost" id="wBack" type="button">Back</button>' : ''}<button class="btn ghost" id="wAgain" type="button">Watch again</button><button class="btn" id="wNext" type="button">${last ? 'Go on' : 'Next example'}</button><span class="go">${last ? `That was the last example of ${nm}.` : ''}</span>`;
     if ($('#wNext')) $('#wNext').addEventListener('click', goNext);
     $('#wAgain').addEventListener('click', again);
-    if (k > 0) $('#wBack').addEventListener('click', goBack);
+    if (k > 0 && $('#wBack')) $('#wBack').addEventListener('click', goBack);
     const t1 = performance.now();
     onKey = e => {
       if (performance.now() - t1 < 250) return;
       if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowRight') goNext();
       else if (e.key === 'r' || e.key === 'R') again();
-      else if (e.key === 'ArrowLeft') goBack();
+      else if (e.key === 'ArrowLeft') (s.build === 'pilote' ? again : goBack)();   // the pilot: the left arrow watches again (12 October 2026)
     };
   };
   play();

@@ -2410,35 +2410,41 @@ function showRecall(b, when) {
 }
 // How hard it was to play each part: a 7-point scale with words only at both ends and in the middle (Julian, 9 October
 // 2026: less text). The keys 1 to 7 answer too. Then what we want to learn: how the participant would describe the
-// character (required), and the strategy (optional). After the last part, the same scale for playing as oneself.
+// character, and the strategy, both required, each on its own page (Himalaya, 12 October 2026: three pages, not one).
+// After the last part, the same scale for playing as oneself, then the strategy.
 const PILOT_SCALE = ['Very easy', '', '', 'Neither easy nor hard', '', '', 'Very hard'];
 function showFeel(b) {
   screen = 'feel'; onKeyUp = null;
   const m = b.mind, self = b.type === 'self', nm = esc(m.name);
-  let pick = null;
+  const rec = { block: G.blocks.indexOf(b) + 1, attempt: b.attempt || 1, person: self ? 'you' : m.name, felt: null, felt_label: '', scale: '1 very easy, 4 neither easy nor hard, 7 very hard', describe: '', strategy: '' };
+  const done = () => { G.feels.push(rec); persist(); next(); };
+  const textPage = (question, key, after) => {
+    onKey = null;
+    app.innerHTML = `<section class="panel" style="--sam:${m.color}">
+    <div class="who">${avatarHTML(m.color)}<h2 class="feelq">${question}</h2></div>
+    <textarea id="feelText"></textarea>
+    <div class="continue"><button class="btn" id="feelDone" type="button" disabled>Next</button></div>
+  </section>`;
+    const box = $('#feelText');
+    box.focus();
+    box.addEventListener('input', () => { $('#feelDone').disabled = !box.value.trim(); });
+    $('#feelDone').addEventListener('click', () => { rec[key] = box.value.trim(); after(); });
+  };
+  const strategy = () => textPage('What strategy did you use?', 'strategy', done);
+  const describe = () => textPage(`How would you describe ${nm}?`, 'describe', strategy);
   app.innerHTML = `<section class="panel" style="--sam:${m.color}">
     <div class="who">${avatarHTML(m.color)}<h2 class="feelq">How easy or hard was it to play as ${self ? 'yourself' : nm}?</h2></div>
     <div class="likert">${PILOT_SCALE.map((o, k) => `<button type="button" data-k="${k + 1}"><b>${k + 1}</b><span>${o}</span></button>`).join('')}</div>
-    ${self ? '' : `<p class="qq">How would you describe ${nm}?</p><textarea id="feelDescribe"></textarea>`}
-    <p class="qq">What strategy did you use? <span class="muted">(optional)</span></p><textarea id="feelStrategy"></textarea>
     <div class="continue"><button class="btn" id="feelDone" type="button" disabled>Next</button></div>
   </section>`;
-  const ready = () => { $('#feelDone').disabled = !(pick && (self || $('#feelDescribe').value.trim())); };
   const choose = k => {
-    pick = k;
+    rec.felt = k; rec.felt_label = PILOT_SCALE[k - 1] || '';
     $$('.likert button').forEach(x => x.classList.toggle('on', Number(x.dataset.k) === k));
-    ready();
+    $('#feelDone').disabled = false;
   };
   $('.likert').addEventListener('click', e => { const btn = e.target.closest('button'); if (btn) choose(Number(btn.dataset.k)); });
-  if (!self) $('#feelDescribe').addEventListener('input', ready);
   onKey = e => { if (/^[1-7]$/.test(e.key)) choose(Number(e.key)); else if (e.key === 'Enter' && !$('#feelDone').disabled) $('#feelDone').click(); };
-  $('#feelDone').addEventListener('click', () => {
-    onKey = null;
-    G.feels.push({ block: G.blocks.indexOf(b) + 1, attempt: b.attempt || 1, person: self ? 'you' : m.name, felt: pick, felt_label: PILOT_SCALE[pick - 1] || '', scale: '1 very easy, 4 neither easy nor hard, 7 very hard',
-      describe: self ? '' : $('#feelDescribe').value.trim(), strategy: $('#feelStrategy').value.trim() });
-    persist();
-    next();
-  });
+  $('#feelDone').addEventListener('click', () => (self ? strategy() : describe()));
 }
 // The last question (Himalaya, 9 October 2026): which of the two characters was harder to play. The two answers are
 // shown in the order played, the most recent on the right.

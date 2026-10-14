@@ -2600,6 +2600,8 @@ function showRecall(b, when) {
 // 2026: less text). The keys 1 to 7 answer too. Then what we want to learn: how the participant would describe the
 // character, and the strategy, both required, each on its own page (Himalaya, 12 October 2026: three pages, not one).
 // After the last part, the same scale for playing as oneself, then the strategy.
+// The strategy page asks why the participant chose what they chose (Himalaya, 14 October 2026): asked for a
+// strategy, people wrote only the rules of the game, never their other reasons (health, variety). Still saved as strategy.
 const PILOT_SCALE = ['Very easy', '', '', 'Neither easy nor hard', '', '', 'Very hard'];
 function showFeel(b) {
   screen = 'feel'; onKeyUp = null;
@@ -2618,7 +2620,7 @@ function showFeel(b) {
     box.addEventListener('input', () => { $('#feelDone').disabled = !box.value.trim(); });
     $('#feelDone').addEventListener('click', () => { rec[key] = box.value.trim(); after(); });
   };
-  const strategy = () => textPage('What strategy did you use?', 'strategy', done);
+  const strategy = () => textPage('Why did you choose what you chose?', 'strategy', done);
   const describe = () => textPage(`How would you describe ${nm}?`, 'describe', strategy);
   app.innerHTML = `<section class="panel" style="--sam:${m.color}">
     <div class="who">${avatarHTML(m.color)}<h2 class="feelq">How easy or hard was it to play as ${self ? 'yourself' : nm}?</h2></div>

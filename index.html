@@ -1643,7 +1643,7 @@ function showQuiz(b) {
 function showOnlineStart() {
   screen = 'start'; onKey = null; onKeyUp = null; CUR = null; setTop(false);
   const code = (new URLSearchParams(location.search).get('code') || '').trim().slice(0, 40);
-  app.innerHTML = `<section class="story"><h1>The snack walk</h1><p class="lead">Welcome! The game takes about 15 minutes. The next pages explain it.</p><p class="lead">Please use a computer with a keyboard.</p>
+  app.innerHTML = `<section class="story"><h1>The snack walk</h1><p class="lead">Welcome! The game takes about 15 minutes. The next pages explain it.</p>
     ${code ? '<p class="presskey">Press space to start</p>' : '<div class="name-field"><label for="player">Your name or code</label><input id="player" data-enter="#go" autocomplete="off"></div><div class="actions"><button class="btn" id="go" type="button">Start</button></div>'}
     <details class="saved" id="expSet"><summary>Settings (for the experimenter only)</summary><div class="expset">${pilotSwitchesHTML()}</div></details></section>`;
   // Online too, folded (Himalaya, 14 October 2026): the experimenter can choose the version on the participant's computer;

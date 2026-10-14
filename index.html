@@ -356,6 +356,23 @@ main{padding-top:14px;padding-bottom:14px}
 .modal{background:rgba(0,0,0,.35)}
 .sheet{border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
 .sheet-head{border-radius:6px 6px 0 0}
+/* the colours offered for someone the player knows well */
+.colorpick{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
+.colorpick button{border:2px solid transparent;border-radius:6px;background:#fff;padding:4px}
+.colorpick button:hover{border-color:#ccc}
+.colorpick button.on{border-color:#333}
+/* the experimenter settings on the lab start page; the sheet of a character's tastes, on the 9-point liking scale */
+.expset{display:grid;gap:10px;margin:10px 0 4px}
+.expset .qrow{grid-template-columns:190px 1fr}
+.sheet9{border-collapse:collapse;margin:6px 0 4px}
+.sheet9 th{font-weight:400;font-size:13px;line-height:1.2;color:#222;vertical-align:bottom;padding:0 2px 8px;width:58px;text-align:center}
+.sheet9 td{padding:5px 2px;text-align:center;border-top:1px solid #e5e5e5}
+.sheet9 td.sic img{width:34px;height:34px;display:block}
+.sheet9 td.snm{text-align:left;padding-right:16px;white-space:nowrap}
+.sheet9 td i{display:inline-block;width:18px;height:18px;border-radius:50%;border:2px solid #bbb;box-sizing:border-box}
+.sheet9 td i.on{background:#333;border-color:#333}
+.rate9 .dotbtn{border:0;background:none;padding:6px 14px;cursor:pointer;line-height:0}
+.rate9 .dotbtn:hover i{border-color:#333}
 </style>
 </head>
 <body>
@@ -466,6 +483,7 @@ const DEFAULT_SAMS = [
 ];
 const PRACTICE_MIND = { id: 'pat', name: 'Pat', tag: 'practice', color: '#7b8494', cost: 1, practice: true, v: { egg: 6, pretzel: 3, lemon: -4 } };
 const ME_MIND = { id: 'you', name: 'You', tag: 'yourself', color: '#475569', cost: 1 };
+const KNOWN_MIND = { id: 'known', name: '', tag: 'someone the player knows well', color: '#8b52d6', cost: 1 };
 const EXAMPLES = { short: 6, standard: 10, long: 14 };
 const BETA = 1;   // how sharply choices follow points, for the model that reads tastes from choices
 
@@ -489,7 +507,23 @@ const DEFAULTS = {
   card: 'visible', display: 'numbers', recall: 'off',
   build: 'pilote', length: 'standard', two: true, three: true, door: true, pass: false,
   feedback: 'none', timeLimit: 0, framing: 'as', practice: true, feel: true, autoFile: true, seed: 1, grid: 9,
+  tastes: 'watch', known: 'off', rating: 'off',   // the pilot: how the player learns each character's tastes, watching choices or told on a sheet (Julian, 12 October 2026)
 };
+// The pilot's experimenter switches (Himalaya, 14 October 2026): on the lab start page, folded, and in the link
+// (?code=lab01&tastes=told). The first value of each is the default, the pilot as it was on 13 October.
+const PILOT_SWITCHES = {
+  tastes: { label: "Each character's tastes", opts: [['watch', 'Watch their choices'], ['told', 'Told on a sheet']] },
+  known: { label: 'Someone you know well', opts: [['off', 'No'], ['on', 'After the characters']] },
+  rating: { label: 'How much you like each food', opts: [['off', 'No'], ['on', 'After playing as yourself']] },
+  self: { label: 'Play as yourself', opts: [['after', 'At the end'], ['off', 'No']] },
+};
+function linkSettings() {
+  const q = new URLSearchParams(location.search), out = {};
+  Object.keys(PILOT_SWITCHES).forEach(k => { const v = q.get(k); if (v && PILOT_SWITCHES[k].opts.some(o => o[0] === v)) out[k] = v; });
+  return out;
+}
+// The version, in one line, on every round and in every file.
+const versionOf = s => Object.keys(PILOT_SWITCHES).map(k => `${k}=${s[k]}`).join(' ');
 
 const DOOR_SVG = '<svg viewBox="0 0 100 100" aria-hidden="true"><rect x="20" y="6" width="60" height="90" rx="7" fill="#6b4226"/><rect x="27" y="13" width="46" height="83" rx="4" fill="#a86a3d"/><rect x="33" y="21" width="34" height="27" rx="3" fill="#bb7d4b"/><rect x="33" y="55" width="34" height="33" rx="3" fill="#bb7d4b"/><circle cx="64" cy="56" r="4.5" fill="#f3c74e"/></svg>';
 function shapeSVG(kind) {
@@ -1305,6 +1339,8 @@ function pilotBlocks(s) {
   const minds = ['coherent', 'deplace'].map(k => ({ ...s.sams.find(m => m.id === k), name: nameOf(k), color: colors[nameOf(k)] }));
   const blocks = [];
   if (s.practice) blocks.push(pilotPracticeBlock(s));
+  // Told on a sheet: the eight foods that are shown, in an order drawn for each player, the same for both characters.
+  const sheetFoods = shuffle(rngFor('sheet', s.seed), PILOT_FOODS.filter(id => !PILOTE.caches.includes(id)));
   (first === 'coherent' ? minds : minds.slice().reverse()).forEach(mind => {
     const v = mind.id, vals = effValues(mind, s);
     const trials = PILOTE.jouer.map(c => pilotTurn(rng, c[v], { card: c.id, kind: 'scored', band: c.bande, version: v }))
@@ -1315,13 +1351,25 @@ function pilotBlocks(s) {
     }));
     const profile = profileOf(mind.v, pool);
     blocks.push({ type: 'sam', mind, trials: shuffle(rng, trials), near: profile.near, profile, hidden: PILOTE.caches.slice(),
-      examples: { demos, recovered: {}, rmse: null }, pairs: [] });
+      examples: { demos, recovered: {}, rmse: null }, pairs: [], told: s.tastes === 'told' ? sheetFoods.slice() : null });
   });
   if (s.self === 'after') {
     const trials = [];
     ['coherent', 'deplace'].forEach(v => PILOTE.jouer.forEach(c => trials.push(pilotTurn(rng, c[v], { card: c.id, kind: 'scored', band: c.bande, version: v }))));
     PILOTE.tests.forEach(c => trials.push(pilotTurn(rng, c, { card: c.id, kind: 'test', band: '', version: 'both' })));
     blocks.push({ type: 'self', mind: ME_MIND, trials: shuffle(rng, trials) });
+  }
+  // Someone the player knows well (Julian's experiment 3, 12 October 2026; Himalaya, 14 October 2026): after the two
+  // characters, before playing as yourself, on the same 38 cards as yourself. The player types the person's initials
+  // first. No right answer, so nothing is scored; the difficulty scale and the times stay. Its own draw of turns and
+  // order, so that the other parts are the same with or without it.
+  if (s.known === 'on') {
+    const kr = rngFor('known', s.seed), trials = [];
+    ['coherent', 'deplace'].forEach(v => PILOTE.jouer.forEach(c => trials.push(pilotTurn(kr, c[v], { card: c.id, kind: 'scored', band: c.bande, version: v }))));
+    PILOTE.tests.forEach(c => trials.push(pilotTurn(kr, c, { card: c.id, kind: 'test', band: '', version: 'both' })));
+    const kb = { type: 'known', mind: { ...KNOWN_MIND }, trials: shuffle(kr, trials) };
+    const at = blocks.findIndex(b => b.type === 'self');
+    if (at < 0) blocks.push(kb); else blocks.splice(at, 0, kb);
   }
   return { blocks: blocks.filter(b => b.trials.length), shared: [], pool };
 }
@@ -1382,15 +1430,20 @@ function pilotSteps(blocks, s) {
   const st = PILOT_STORY.map((_, k) => ({ type: 'story', k }));
   let quizzed = false;
   blocks.forEach(b => {
+    if (b.type === 'known') st.push({ type: 'knownask', b });
     st.push({ type: 'intro', b });
     if (b.type === 'sam' && !quizzed) { st.push({ type: 'quiz', b }); quizzed = true; }   // Julian, 9 October 2026
     // Each important moment gets its own announcing page (Himalaya, 12 October 2026, after a lab tester).
-    if (b.type === 'sam') { st.push({ type: 'watchintro', b }); st.push({ type: 'watch', b }); st.push({ type: 'ready', b }); }
+    if (b.type === 'sam' && b.told) { st.push({ type: 'sheetintro', b }); st.push({ type: 'sheet', b }); st.push({ type: 'ready', b }); }
+    else if (b.type === 'sam') { st.push({ type: 'watchintro', b }); st.push({ type: 'watch', b }); st.push({ type: 'ready', b }); }
     b.trials.forEach((_, i) => st.push({ type: 'trial', b, i, phase: b.type === 'sam' ? 'test' : b.type }));
+    // Playing as yourself first, then how much you like each food (Himalaya, 14 October 2026).
+    if (b.type === 'self' && s.rating === 'on') st.push({ type: 'rating', when: 'after playing as yourself' });
     if (b.type === 'practice') st.push({ type: 'plan' });
-    if ((b.type === 'sam' || b.type === 'self') && s.feel) st.push({ type: 'feel', b });
+    if ((b.type === 'sam' || b.type === 'known' || b.type === 'self') && s.feel) st.push({ type: 'feel', b });
   });
   if (s.feel && blocks.filter(b => b.type === 'sam').length === 2) st.push({ type: 'harder' });
+  if (s.rating === 'on' && !blocks.some(b => b.type === 'self')) st.push({ type: 'rating', when: 'at the end' });
   st.push({ type: 'summary' });
   return st;
 }
@@ -1435,7 +1488,7 @@ const pilotBack = () => { const el = $('#back'); if (el) el.addEventListener('cl
 function showPlan() {
   clearTimeout(STORY_TIMER);
   screen = 'story'; onKey = null; onKeyUp = null;
-  app.innerHTML = pilotPage('The game', ['The game has three parts.'], '');
+  app.innerHTML = pilotPage('The game', [`The game has ${['no', 'one', 'two', 'three', 'four', 'five'][partCount()]} parts.`], '');
   pilotBack();
   armContinue(next, 400);
 }
@@ -1443,11 +1496,12 @@ function pilotIntro(b) {
   const m = b.mind, nm = esc(m.name);
   let html;
   if (b.type === 'practice') html = pilotPage("Let's practice", ['Use the arrow keys to walk. Follow the instruction above the town.'], '');
-  else if (b.type === 'self') html = pilotPage('Part 3 of 3: you', ['Now you are yourself again: do exactly what you would do on a typical day.', 'Remember, each square is one block, and you are choosing what to eat.', 'Walk to the snack you would pick, or go home through the door.'], ME_MIND.color);
+  else if (b.type === 'self') html = pilotPage(`Part ${partNo(b)} of ${partCount()}: you`, ['Now you are yourself again: do exactly what you would do on a typical day.', 'Remember, each square is one block, and you are choosing what to eat.', 'Walk to the snack you would pick, or go home through the door.'], ME_MIND.color);
+  else if (b.type === 'known') html = pilotPage(`Part ${partNo(b)} of ${partCount()}: ${nm}`, [`Now pretend you are ${nm}, the person you know well.`, `Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.`, `Make the same choices ${nm} would make, as if you were ${nm}.`], m.color);
   // Two steps in each character's part, named a and b (Himalaya, 12 October 2026, after a lab tester).
   else {
-    const n = partNo(b), steps = [`<b>${n}a.</b> Watch ${nm} choose snacks, and try your best to figure out what ${nm} likes.`, `<b>${n}b.</b> Make the same choices ${nm} would make, as if you were ${nm}.`];
-    html = pilotPage(`Part ${n} of 3: ${nm}`, (n === 1 ? ['This part has two steps.'] : ['Same thing, with a different character who has different tastes.']).concat(steps), m.color);
+    const n = partNo(b), steps = [b.told ? `<b>${n}a.</b> Read how much ${nm} likes each food.` : `<b>${n}a.</b> Watch ${nm} choose snacks, and try your best to figure out what ${nm} likes.`, `<b>${n}b.</b> Make the same choices ${nm} would make, as if you were ${nm}.`];
+    html = pilotPage(`Part ${n} of ${partCount()}: ${nm}`, (n === 1 ? ['This part has two steps.'] : ['Same thing, with a different character who has different tastes.']).concat(steps), m.color);
   }
   app.innerHTML = html;
   const t0 = performance.now();
@@ -1456,7 +1510,8 @@ function pilotIntro(b) {
   pilotBack();
   armContinue(go, 400);
 }
-const partNo = b => G.blocks.filter(x => x.type === 'sam').indexOf(b) + 1;
+const partNo = b => G.blocks.filter(x => x.type !== 'practice').indexOf(b) + 1;
+const partCount = () => G.blocks.filter(x => x.type !== 'practice').length;
 // Before the examples: a page that says clearly what comes next (Himalaya, 12 October 2026).
 function showWatchIntro(b) {
   screen = 'intro'; onKey = null; onKeyUp = null;
@@ -1468,11 +1523,90 @@ function showWatchIntro(b) {
 function showReady(b) {
   screen = 'intro'; onKey = null; onKeyUp = null;
   const m = b.mind, nm = esc(m.name);
-  app.innerHTML = pilotPage(`Part ${partNo(b)}b: now pretend you are ${nm}`, [`Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.`, `Make the same choices ${nm} would make, as if you were ${nm}.`], m.color);
+  app.innerHTML = pilotPage(`Part ${partNo(b)}b: now pretend you are ${nm}`, [`Act exactly as if you were ${nm}, with ${nm}'s tastes, not yours.`, `Make the same choices ${nm} would make, as if you were ${nm}.`]
+    .concat(b.told ? [`Before each round, you will see ${nm}'s tastes again.`] : []), m.color);
   let done = false;
   const go = () => { if (done) return; done = true; next(); };
   pilotBack();
   armContinue(go, 400);
+}
+// How much the player likes each food, apart from the game (Himalaya, 14 October 2026): liking, said, next to wanting,
+// what they do in the town. Right after playing as yourself (at the end when there is no such part). All twelve foods on one page, in an order drawn for each player, on the same 9-point scale
+// as the characters' sheet; a click on a circle answers, and every click is kept (food, point, time).
+function showRating(when) {
+  screen = 'rating'; onKey = null; onKeyUp = null;
+  const order = shuffle(rngFor('rating', G.s.seed), PILOT_FOODS.slice()), ans = {}, clicks = [], t0 = performance.now();
+  const head = LIKE_SCALE.map(w => `<th>${w ? `<span>${esc(w)}</span>` : ''}</th>`).join('');
+  const rows = order.map(id => `<tr data-id="${id}"><td class="sic">${itemIcon(id)}</td><td class="snm">${esc(itemName(id))}</td>${LIKE_SCALE.map((_, k) => `<td><button type="button" class="dotbtn" data-k="${k + 1}" aria-label="${k + 1}"><i></i></button></td>`).join('')}</tr>`).join('');
+  app.innerHTML = `<section class="story sheetpage"><h1>How much do you like each food?</h1>
+    <table class="sheet9 rate9"><thead><tr><th></th><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="continue"><button class="btn" id="rateDone" type="button" disabled>Next</button></div></section>`;
+  $('.rate9').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const tr = btn.closest('tr'), id = tr.dataset.id, k = Number(btn.dataset.k);
+    ans[id] = k; clicks.push({ food: id, point: k, t_ms: Math.round(performance.now() - t0) });
+    $$('i', tr).forEach((x, j) => x.classList.toggle('on', j + 1 === k));
+    $('#rateDone').disabled = order.some(x => ans[x] === undefined);
+  });
+  $('#rateDone').addEventListener('click', () => {
+    G.ratings = { session: G.id, player: G.s.player || '', version: versionOf(G.s), when, scale: '1 dislike a lot, 5 neither like nor dislike, 9 like a lot', order, liking: { ...ans }, clicks, ms: Math.round(performance.now() - t0), at: new Date().toISOString() };
+    persist(); next();
+  });
+}
+// Someone the player knows well: their initials, typed, and a colour for their character, clicked among ten that
+// are not Sam's, Alex's or yours (Himalaya, 14 October 2026). Both kept in the data.
+const KNOWN_COLORS = ['#8b52d6', '#d6336c', '#2f6fdf', '#74b9e8', '#c92a2a', '#2b8a3e', '#94c11f', '#e0b000', '#7c4a1e', '#222222'];
+function showKnownAsk(b) {
+  screen = 'intro'; onKey = null; onKeyUp = null;
+  app.innerHTML = `<section class="story"><h1>Part ${partNo(b)} of ${partCount()}: someone you know well</h1>
+    <p class="lead">Think of a person you know well.</p><p class="lead">Type their initials.</p>
+    <div class="name-field"><input id="knownIn" style="flex:none;width:140px" maxlength="8" autocomplete="off" data-enter="#knownGo" aria-label="Initials"></div>
+    <p class="lead">As if you were them, pick a color.</p>
+    <div class="colorpick">${KNOWN_COLORS.map(c => `<button type="button" data-c="${c}" aria-label="${c}">${avatarHTML(c)}</button>`).join('')}</div>
+    <div class="actions"><button class="btn" id="knownGo" type="button" disabled>Continue</button></div></section>`;
+  const inp = $('#knownIn'), go = $('#knownGo'), t0 = performance.now();
+  const clean = () => inp.value.toUpperCase().replace(/[^A-Z]/g, '');   // letters only: J.D. and j d both give JD
+  let color = null, colorClicks = 0;
+  const ready = () => { go.disabled = !clean() || !color; };
+  inp.focus();
+  inp.addEventListener('input', ready);
+  $('.colorpick').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    color = btn.dataset.c; colorClicks++;
+    $$('.colorpick button').forEach(x => x.classList.toggle('on', x === btn));
+    ready();
+  });
+  go.addEventListener('click', () => {
+    const v = clean(); if (!v || !color) return;
+    b.mind.name = v; b.mind.color = color;
+    G.known = { initials: v, typed: inp.value, color, color_clicks: colorClicks, colors_offered: KNOWN_COLORS, block: G.blocks.indexOf(b) + 1, ms: Math.round(performance.now() - t0), at: new Date().toISOString() };
+    persist(); next();
+  });
+}
+// Told on a sheet (Julian's experiment 1, 12 October 2026; Himalaya, 14 October 2026): how much the character likes each
+// food shown, on the same 9-point scale as the player's own liking. The pilot's values 8, 4, 0, -8 fall on 9, 7, 5, 1:
+// on 9 points every value has its own place and no gap is bent. The four foods never shown are not on the sheet.
+const LIKE_SCALE = ['Dislike a lot', '', '', '', 'Neither like nor dislike', '', '', '', 'Like a lot'];
+const likePoint = v => clamp(Math.round(5 + v / 2), 1, 9);
+function sheetHTML(b, foot) {
+  const m = b.mind, nm = esc(m.name), vals = effValues(m, G.s);
+  const head = LIKE_SCALE.map((w, k) => `<th>${w ? `<span>${esc(w)}</span>` : ''}</th>`).join('');
+  const rows = b.told.map(id => `<tr><td class="sic">${itemIcon(id)}</td><td class="snm">${esc(itemName(id))}</td>${LIKE_SCALE.map((_, k) => `<td><i class="${k + 1 === likePoint(vals[id]) ? 'on' : ''}"></i></td>`).join('')}</tr>`).join('');
+  return `<section class="story sheetpage"><div class="who">${avatarHTML(m.color)}<h1>How much ${nm} likes each food</h1></div>
+    <table class="sheet9"><thead><tr><th></th><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>
+    <p class="presskey">${foot}</p></section>`;
+}
+function showSheetIntro(b) {
+  screen = 'intro'; onKey = null; onKeyUp = null;
+  const m = b.mind, nm = esc(m.name), n = partNo(b);
+  app.innerHTML = pilotPage(`Part ${n}a: ${nm}'s tastes`, [`On the next screen, you will see how much ${nm} likes each food.`], m.color);
+  armContinue(next, 400);
+}
+function showSheet(b) {
+  screen = 'sheet'; onKey = null; onKeyUp = null;
+  app.innerHTML = sheetHTML(b, 'Press space to continue');
+  const t0 = performance.now();
+  armContinue(() => { b.sheetMs = Math.round(performance.now() - t0); next(); }, 400);
 }
 // The quiz (Julian, 9 October 2026): right after the first part is introduced, two questions on the two things that
 // must be understood. The character chooses by its own tastes, which the player has to figure out; then the player acts
@@ -1481,6 +1615,8 @@ function showQuiz(b) {
   screen = 'quiz'; onKey = null; onKeyUp = null;
   const nm = esc(b.mind.name);
   const qs = [
+    b.told ? { q: `The sheet you will read shows:`, a: ['where the snacks are in the town', `how much ${nm} likes each food`, 'which snack is the closest'], right: 1,
+      hint: `The sheet shows how much ${nm} likes each food.` } :
     { q: `While you watch ${nm}, ${nm} is:`, a: ['always walking to the closest snack', `choosing by ${nm}'s own tastes, which you have to figure out`, 'always choosing the fanciest snack'], right: 1,
       hint: `${nm} chooses by ${nm}'s own tastes. Your job is to figure them out.` },
     { q: `Then, when you play as ${nm}, you should:`, a: ['pick the snacks you like yourself', `mix your tastes with ${nm}'s tastes`, `make the same choices ${nm} would make, as if you were ${nm}`], right: 2,
@@ -1521,7 +1657,7 @@ async function showThanks() {
   G.ended = G.ended || new Date().toISOString();
   app.innerHTML = '<section class="story"><h1>Thank you!</h1><p class="lead" id="sendMsg">Saving your answers…</p></section>';
   const base = fileBase({ player: G.s.player, session: G.id });
-  const json = JSON.stringify(exportObject(), null, 1), csv = toCSV(withNotes(G.trials, G.feels, G.harder));
+  const json = JSON.stringify(exportObject(), null, 1), csv = toCSV(withNotes(G.trials, G.feels, G.harder, G.ratings));
   const send = (filename, data) => fetch('https://pipe.jspsych.org/api/data/', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: '*/*' },
     body: JSON.stringify({ experimentID: ONLINE.datapipe, filename, data }) }).then(r => r.status === 201 || r.status === 202).catch(() => false);
   let ok = false;
@@ -1557,7 +1693,7 @@ function showPilotSummary() {
   G.summary = { pilot: per };
   persist();
   app.innerHTML = `<section class="sum-head"><h1>Results${G.stopped ? ' (stopped early)' : ''}</h1>
-    <p class="muted">For the lab only: this page shows which character was which.${G.s.pilotCell ? ` Order and names: case ${G.s.pilotCell} of 4 (from the ${esc(G.s.pilotCellFrom)}).` : ''}</p></section>
+    <p class="muted">For the lab only: this page shows which character was which. Version: ${esc(versionOf(G.s))}.${G.s.pilotCell ? ` Order and names: case ${G.s.pilotCell} of 4 (from the ${esc(G.s.pilotCellFrom)}).` : ''}</p></section>
     <div class="sum-grid">${per.map(x => `<div class="sum-card" style="--sam:${x.color}"><div class="who">${avatarHTML(x.color)}<div><div class="nm">${esc(x.name)}</div><div class="sb">${esc(x.kind)} tastes · ${x.place}</div></div></div>
       <div class="metric"><span>How hard (1 very easy, 7 very hard)</span><b>${esc(x.felt)}</b></div>
       ${x.describe ? `<p class="small"><b>Described as:</b> ${esc(x.describe)}</p>` : ''}
@@ -1567,13 +1703,14 @@ function showPilotSummary() {
     <section class="sum-foot"><p><b>Test rounds</b> (a food never seen while watching; no right answer, not scored): what was taken. Blocks away in brackets.</p>
       <table class="ptab"><tr><th>Round</th>${per.map(x => `<th>As ${esc(x.name)}</th>`).join('')}<th>For yourself</th></tr>
       ${tests.map(c => `<tr><td>${esc(c.label)}</td>${per.map(x => `<td>${esc(nameOf(x.tests[c.id]))}</td>`).join('')}<td>${esc(nameOf(c.you))}</td></tr>`).join('')}</table>
+      ${(() => { const kb = G.blocks.find(x => x.type === 'known'); if (!kb) return ''; const kf = feels.find(x => G.blocks[x.block - 1] === kb), kr = recs.filter(r => G.blocks[r.block - 1] === kb); return `<p><b>Someone you know well (${esc(kb.mind.name)}), how hard:</b> ${kf ? kf.felt + (kf.felt_label ? ', ' + esc(kf.felt_label.toLowerCase()) : '') : ''}; ${kr.length} rounds, time before the first step ${(() => { const v = med(kr.map(r => r.rt_first_ms)); return v == null ? '' : num(v / 1000, 1) + ' s'; })()} (median). Not scored.</p>`; })()}
       ${G.harder ? `<p><b>Harder to play as:</b> ${esc(G.harder.name)} (${esc(G.harder.person)}).</p>` : ''}
       ${(() => { const sf = feels.find(x => G.blocks[x.block - 1] && G.blocks[x.block - 1].type === 'self'); return sf ? `<p><b>Playing as yourself, how hard:</b> ${sf.felt}${sf.felt_label ? ', ' + esc(sf.felt_label.toLowerCase()) : ''}.</p>` : ''; })()}
       <p class="muted">Quiz attempts: ${(G.quiz || []).length}. This game is kept in this browser.${G.s.autoFile ? ' A copy also goes to your Downloads as a file.' : ''}</p>
       <div class="actions"><button class="btn" id="dlJson" type="button">Download everything (JSON)</button><button class="btn ghost" id="dlCsv" type="button">Download the rounds (CSV)</button><button class="btn ghost" id="again" type="button">New game</button></div></section>`;
   const base = fileBase({ player: G.s.player, session: G.id });
   if (G.s.autoFile && !G.fileSaved) { G.fileSaved = true; download(base + '.json', JSON.stringify(exportObject(), null, 1), 'application/json'); }
-  $('#dlCsv').addEventListener('click', () => download(base + '.csv', toCSV(withNotes(G.trials, G.feels, G.harder)), 'text/csv'));
+  $('#dlCsv').addEventListener('click', () => download(base + '.csv', toCSV(withNotes(G.trials, G.feels, G.harder, G.ratings)), 'text/csv'));
   $('#dlJson').addEventListener('click', () => download(base + '.json', JSON.stringify(exportObject(), null, 1), 'application/json'));
   $('#again').addEventListener('click', showStart);
 }
@@ -1644,14 +1781,14 @@ function buildSteps(blocks, s) {
 
 /* ============ Screens ============ */
 let S = loadSettings();
-S = Object.assign(clone(DEFAULTS), { player: '' });   // the pilot always runs with its own settings, and an empty participant code
+S = Object.assign(clone(DEFAULTS), { player: '' }, linkSettings());   // the pilot always runs with its own settings, and an empty participant code
 let G = null;
 let screen = 'start';
 let onKey = null, onKeyUp = null;
 let CUR = null;
 const app = $('#app');
 const KEYDIR = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0], W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0] };
-const GAME_SCREENS = ['intro', 'game', 'recall', 'feel', 'harder', 'watch', 'check'];
+const GAME_SCREENS = ['intro', 'game', 'recall', 'feel', 'harder', 'watch', 'check', 'sheet'];
 const menuOpen = () => !$('#menu').classList.contains('hidden');
 
 window.addEventListener('keydown', e => {
@@ -1814,6 +1951,13 @@ function quickHTML() {
     + seg('length', 'Rounds per person', [['short', 'Few'], ['standard', 'Some'], ['long', 'Many']])
     + seg('practice', 'Practice first', [[true, 'Yes'], [false, 'No']]);
 }
+// The pilot's switches on the lab start page, and the link that gives the same version online (the participant's code
+// goes in place of CODE). The default (first) values are left out of the link.
+function pilotSwitchesHTML() {
+  const rows = Object.entries(PILOT_SWITCHES).map(([k, sw]) => `<div class="qrow"><span class="qlabel">${esc(sw.label)}</span><div class="seg" data-key="${k}">${sw.opts.map(([v, t]) => `<button type="button" class="${S[k] === v ? 'on' : ''}" data-v="${v}">${esc(t)}</button>`).join('')}</div></div>`).join('');
+  const extra = Object.keys(PILOT_SWITCHES).filter(k => S[k] !== PILOT_SWITCHES[k].opts[0][0]).map(k => `&${k}=${S[k]}`).join('');
+  return `${rows}<p class="muted small">Online link for this version: https://himalaya-gir.github.io/snack-walk/?code=CODE${esc(extra)}</p>`;
+}
 function showStart() {
   if (S.build === 'pilote') S.player = '';   // the next participant never sees the previous code
   if (ONLINE.on) return showOnlineStart();
@@ -1836,6 +1980,7 @@ function showStart() {
       ${S.build === 'pilote' ? '' : '<button class="btn ghost" id="openSet" type="button">More settings</button>'}
     </div>
     ${people.length || placing(S) ? '' : '<p class="muted small" style="margin-top:10px">Turn on at least one person.</p>'}
+    ${S.build === 'pilote' ? `<details class="saved" id="expSet"><summary>Settings (for the experimenter only)</summary><div class="expset">${pilotSwitchesHTML()}</div></details>` : ''}
     <details class="saved"><summary>Saved games (for the experimenter)</summary><p class="muted small">Every game is kept in this browser as you play, even unfinished, newest first.</p>
       <div id="savedList"><p class="muted small">Looking…</p></div>
       <div class="actions hidden" id="savedActions" style="margin-top:10px"><button class="btn ghost" id="dlAllJson" type="button">Download all games (JSON)</button><button class="btn ghost" id="dlAllCsv" type="button">Download all rounds (CSV)</button></div>
@@ -1854,6 +1999,12 @@ function showStart() {
       else S[seg.dataset.key] = v;
     }
     saveSettings(); showStart();
+  });
+  if ($('#expSet')) $('#expSet').addEventListener('click', e => {
+    const btn = e.target.closest('button'), seg = btn && btn.closest('.seg');
+    if (!seg || !seg.dataset.key) return;
+    S[seg.dataset.key] = btn.dataset.v;
+    $('.expset').innerHTML = pilotSwitchesHTML();
   });
   $('#player').addEventListener('input', e => { S.player = e.target.value; saveSettings(); });
   $('#go').addEventListener('click', startGame);
@@ -1878,11 +2029,11 @@ async function renderSaved() {
     const b = e.target.closest('button'); if (!b) return;
     const g = games[Number(b.dataset.g)];
     if (b.dataset.f === 'json') download(fileBase(g) + '.json', JSON.stringify(g, null, 1), 'application/json');
-    else download(fileBase(g) + '.csv', toCSV(withNotes(g.rounds || [], g.feelings, g.harder_to_play)), 'text/csv');
+    else download(fileBase(g) + '.csv', toCSV(withNotes(g.rounds || [], g.feelings, g.harder_to_play, g.own_liking)), 'text/csv');
   };
   $('#savedActions').classList.remove('hidden');
   $('#dlAllJson').onclick = () => download('snack_walk_pilot_all_games.json', JSON.stringify({ app: 'Play as Sam, pilot', games }, null, 1), 'application/json');
-  $('#dlAllCsv').onclick = () => download('snack_walk_pilot_all_rounds.csv', toCSV(games.flatMap(g => withNotes(g.rounds || [], g.feelings, g.harder_to_play))), 'text/csv');
+  $('#dlAllCsv').onclick = () => download('snack_walk_pilot_all_rounds.csv', toCSV(games.flatMap(g => withNotes(g.rounds || [], g.feelings, g.harder_to_play, g.own_liking))), 'text/csv');
 }
 function startGame() {
   if (!activeSams(S).length && !placing(S)) return;
@@ -1915,6 +2066,10 @@ function next() {
   if (st.type === 'quiz') return showQuiz(st.b);
   if (st.type === 'ready') return showReady(st.b);
   if (st.type === 'watchintro') return showWatchIntro(st.b);
+  if (st.type === 'sheetintro') return showSheetIntro(st.b);
+  if (st.type === 'sheet') return showSheet(st.b);
+  if (st.type === 'knownask') return showKnownAsk(st.b);
+  if (st.type === 'rating') return showRating(st.when);
   if (st.type === 'intro') return showIntro(st.b);
   if (st.type === 'watch') return showWatch(st.b);
   if (st.type === 'check') return showCheck(st.b);
@@ -1932,7 +2087,7 @@ function abortCurrent() {
   if (CUR && CUR.st && !CUR.st.done) { CUR.st.done = true; clearTimeout(CUR.st.timer); clearTimeout(CUR.st.driftTimer); clearTimeout(CUR.st.autoTimer); }
   onKey = null; onKeyUp = null;
 }
-function blockLabel(b) { return b.type === 'practice' ? 'the practice' : b.type === 'self' ? 'playing as yourself' : b.mind.name; }
+function blockLabel(b) { return b.type === 'practice' ? 'the practice' : b.type === 'self' ? 'playing as yourself' : b.type === 'known' ? 'someone you know' : b.mind.name; }
 function openMenu() {
   if (!G || !GAME_SCREENS.includes(screen)) return;
   const st = G.steps[G.k], b = st && st.b;
@@ -2136,7 +2291,15 @@ function showCheck(b) {
   ask();
 }
 
-function showTrial(b, i, phase) {
+function showTrial(b, i, phase, sheetMs) {
+  // Told on a sheet: before each round as the character, the sheet alone; Space shows the town, without the sheet.
+  if (G.s.build === 'pilote' && b.type === 'sam' && b.told && sheetMs === undefined) {
+    screen = 'sheet'; onKeyUp = null;
+    app.innerHTML = sheetHTML(b, 'Press space to see the town');
+    const t0 = performance.now();
+    armContinue(() => showTrial(b, i, phase, Math.round(performance.now() - t0)), 250);
+    return;
+  }
   screen = 'game';
   const s = G.s, mind = b.mind;
   const learn = phase === 'learn';
@@ -2173,7 +2336,7 @@ function showTrial(b, i, phase) {
     </div>
     ${side}
   </div>`;
-  const st = { keys: [], pos: map.start.slice(), path: [map.start.slice()], t0: 0, tFirst: null, presses: 0, pend: null, peeks: 0, peekMs: 0, peekAt: null, done: false, last: 0, bumps: 0, interMs: null, timer: null, current: false, drifts: 0, driftTimer: null, autoTimer: null };
+  const st = { keys: [], pos: map.start.slice(), path: [map.start.slice()], t0: 0, tFirst: null, presses: 0, pend: null, peeks: 0, peekMs: 0, peekAt: null, done: false, last: 0, bumps: 0, interMs: sheetMs === undefined ? null : sheetMs, timer: null, current: false, drifts: 0, driftTimer: null, autoTimer: null };
   CUR = { b, i, tr, map, st, phase };
   const agent = $('#agent'), card = $('#card'), pressesEl = $('#presses');
   const place = () => { agent.style.setProperty('--x', st.pos[0]); agent.style.setProperty('--y', st.pos[1]); };
@@ -2353,7 +2516,9 @@ function makeRecord(b, i, tr, choice, st, tEnd, phase) {
   if (tr.pilot) Object.assign(rec, { pilot_seed: s.seed, pilot_case: s.pilotCell || '', pilot_order: s.pilotFirst ? PILOT_LABEL[s.pilotFirst] + ' first' : '',
     pilot_person: b.type === 'sam' ? PILOT_LABEL[mind.id] : '', pilot_card: tr.pilot.card,
     pilot_card_kind: tr.pilot.kind, pilot_scored: tr.pilot.kind === 'scored' && b.type === 'sam', pilot_gap_band: PILOT_BAND[tr.pilot.band] || '',
-    pilot_card_version: PILOT_LABEL[tr.pilot.version] || '' });
+    pilot_card_version: PILOT_LABEL[tr.pilot.version] || '',
+    version: versionOf(s), tastes_from: s.tastes === 'told' ? 'told on a sheet' : 'watched choices',
+    sheet_ms: b.type === 'sam' && b.told && st.interMs != null ? st.interMs : '' });
   return [rec, { vals: vals || {}, d, cost, world: s.world, keys }];
 }
 function calcLine(ctx, id, effort) {
@@ -2429,7 +2594,7 @@ function showRecall(b, when) {
 const PILOT_SCALE = ['Very easy', '', '', 'Neither easy nor hard', '', '', 'Very hard'];
 function showFeel(b) {
   screen = 'feel'; onKeyUp = null;
-  const m = b.mind, self = b.type === 'self', nm = esc(m.name);
+  const m = b.mind, self = b.type === 'self', known = b.type === 'known', nm = esc(m.name);
   const rec = { block: G.blocks.indexOf(b) + 1, attempt: b.attempt || 1, person: self ? 'you' : m.name, felt: null, felt_label: '', scale: '1 very easy, 4 neither easy nor hard, 7 very hard', describe: '', strategy: '' };
   const done = () => { G.feels.push(rec); persist(); next(); };
   const textPage = (question, key, after) => {
@@ -2458,7 +2623,7 @@ function showFeel(b) {
   };
   $('.likert').addEventListener('click', e => { const btn = e.target.closest('button'); if (btn) choose(Number(btn.dataset.k)); });
   onKey = e => { if (/^[1-7]$/.test(e.key)) choose(Number(e.key)); else if (e.key === 'Enter' && !$('#feelDone').disabled) $('#feelDone').click(); };
-  $('#feelDone').addEventListener('click', () => (self ? strategy() : describe()));
+  $('#feelDone').addEventListener('click', () => (self || known ? strategy() : describe()));   // someone real: not described
 }
 // The last question (Himalaya, 9 October 2026): which of the two characters was harder to play. The two answers are
 // shown in the order played, the most recent on the right.
@@ -2649,14 +2814,14 @@ function showSummary() {
   </section>`;
   const base = fileBase({ player: G.s.player, session: G.id });
   if (G.s.autoFile && !G.fileSaved) { G.fileSaved = true; download(base + '.json', JSON.stringify(exportObject(), null, 1), 'application/json'); }
-  $('#dlCsv').addEventListener('click', () => download(base + '.csv', toCSV(withNotes(G.trials, G.feels, G.harder)), 'text/csv'));
+  $('#dlCsv').addEventListener('click', () => download(base + '.csv', toCSV(withNotes(G.trials, G.feels, G.harder, G.ratings)), 'text/csv'));
   $('#dlJson').addEventListener('click', () => download(base + '.json', JSON.stringify(exportObject(), null, 1), 'application/json'));
   $('#again').addEventListener('click', showStart);
 }
 function exportObject() {
   return {
     trial_type: 'session',   // DataPipe's default validation asks for a top-level trial_type field (checked 9 October 2026)
-    app: 'Play as Sam, pilot', session: G.id, player: G.s.player || '', started: G.started, ended: G.ended || null, stopped_early: !!G.stopped,
+    app: 'Play as Sam, pilot', version: G.s.build === 'pilote' ? versionOf(G.s) : '', session: G.id, player: G.s.player || '', started: G.started, ended: G.ended || null, stopped_early: !!G.stopped,
     settings: G.s, types_approximate: TYPES, families: FAMILIES, placed_around_you: !!G.placed, you: G.you || null,
     foods: Object.fromEntries(FOOD_IDS.map(id => [id, { name: FOODS[id].name, family: FOODS[id].family, love_like_neutral_dislike_hate: FOODS[id].yg, stand_in_data: !!FOODS[id].proxy, shape: G.shapeOf[id] }])),
     blocks: G.blocks.map((b, k) => ({
@@ -2666,11 +2831,12 @@ function exportObject() {
       nearest_type: b.near ? { name: b.near.type.name, distance: r3(b.near.d), foods_off: b.near.off } : null,
       distance_to_you: G.you && b.mind.v ? r3(distOn(b.mind.v, G.you.values, G.pool || poolOf(G.s))) : null,
       never_shown: b.hidden || null,
+      told_on_sheet: b.told ? { foods_in_order: b.told, scale: '1 dislike a lot, 5 neither like nor dislike, 9 like a lot', points: Object.fromEntries(b.told.map(id => [id, likePoint(b.mind.v[id])])), first_reading_ms: b.sheetMs == null ? null : b.sheetMs } : null,
       examples: b.examples ? { shown: b.examples.demos.map(x => ({ map_id: x.map.baseId, start: x.map.start, items: x.map.items, terrain: x.map.terrain || null, river_flow: x.map.flow || null, choice: x.best })), observer_recovers: b.examples.recovered, observer_error: r3(b.examples.rmse), watched_again: b.watchAgain || 0, went_back: b.watchBack || 0, views: b.watchLog || null, watch_ms: b.watchMs || null } : null,
       questions: b.pairs || null,
       maps: b.trials.map(t => ({ map_id: t.baseId, start: t.map.start, items: t.map.items, terrain: t.map.terrain || null, river_flow: t.map.flow || null, turned: t.transform || 0, template: t.template || null, relaxed: t.relaxed == null ? null : t.relaxed, against_type: t.against || null })),
     })),
-    rounds: G.trials, key_presses: G.keys || [], which_would_they_eat: G.checks, recalls: G.recalls, feelings: G.feels, harder_to_play: G.harder || null, quiz: G.quiz || null, summary: G.summary || null,
+    rounds: G.trials, key_presses: G.keys || [], someone_known: G.known || null, own_liking: G.ratings || null, which_would_they_eat: G.checks, recalls: G.recalls, feelings: G.feels, harder_to_play: G.harder || null, quiz: G.quiz || null, summary: G.summary || null,
   };
 }
 function persist() { if (!G) return; const g = G; saveGame(exportObject()).then(where => { g.saved = where; }); }
@@ -2678,11 +2844,14 @@ const slug = x => String(x || 'player').toLowerCase().replace(/[^a-z0-9]+/g, '_'
 const fileBase = o => 'snack_walk_pilot_' + slug(o.player) + '_' + o.session;
 // Each round also carries how playing that person felt, the note, and which character was harder, so that the CSV
 // holds the answers too.
-function withNotes(rounds, feelings, harder) {
+function withNotes(rounds, feelings, harder, liking) {
   const byBlock = {};
   (feelings || []).forEach(f => { byBlock[f.block + '/' + (f.attempt || 1)] = f; });
-  const kind = { practice: 'practice', sam: 'as character', self: 'as yourself' };   // trial_type: also what DataPipe's validation asks for
-  return rounds.map(r => { const f = byBlock[r.block + '/' + (r.attempt || 1)]; return { trial_type: kind[r.block_type] || r.block_type, ...r, felt: f ? f.felt : '', felt_label: f ? f.felt_label || '' : '', describe: f ? f.describe || '' : '', strategy: f ? f.strategy || f.note || '' : '', harder_to_play: harder ? harder.person : '' }; });
+  const kind = { practice: 'practice', sam: 'as character', known: 'as someone you know', self: 'as yourself' };   // trial_type: also what DataPipe's validation asks for
+  return rounds.map(r => { const f = byBlock[r.block + '/' + (r.attempt || 1)]; return { trial_type: kind[r.block_type] || r.block_type, ...r, felt: f ? f.felt : '', felt_label: f ? f.felt_label || '' : '', describe: f ? f.describe || '' : '', strategy: f ? f.strategy || f.note || '' : '', harder_to_play: harder ? harder.person : '' }; })
+    // How much the player likes each food, one row per food, after the rounds (only when it was asked).
+    .concat(liking && liking.liking ? liking.order.map((id, k) => ({ trial_type: 'own liking', session: liking.session, player: liking.player, version: liking.version,
+      food: id, liking: liking.liking[id], liking_label: LIKE_SCALE[liking.liking[id] - 1] || '', liking_when: liking.when, liking_position: k + 1, liking_page_ms: liking.ms })) : []);
 }
 function toCSV(rows) {
   const cols = [];
@@ -2822,7 +2991,7 @@ window.__playAsSam = {
   get game() { return G; }, get settings() { return S; }, get current() { return CUR; }, get screen() { return screen; },
   route: id => (CUR ? keysFor(pathTo(CUR.map, CUR.st.pos, id) || []) : null),
   bestNow: () => (CUR && CUR.b.mind.v ? evaluate(CUR.map, effValues(CUR.b.mind, G.s), CUR.b.mind.cost).best : null),
-  evaluate, crowdShares, toCSV, nearestType, teach, openMenu,
+  evaluate, crowdShares, toCSV, withNotes, nearestType, teach, openMenu,
 };
 
 showStart();
